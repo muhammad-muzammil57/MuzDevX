@@ -1,11 +1,20 @@
-import "server-only";
+**`src/lib/db.ts` — Complete replacement**
 
-import { projects, blogPosts, newsArticles } from "@/data/sample-data";
+```ts
+// This file is the ONE place that reads public content.
+//
+// Projects, blogs and news are loaded from Supabase when configured.
+// There is NO silent fallback to sample data when Supabase is configured.
+// This is important because otherwise a Supabase/RLS/query error can make
+// the website show old sample content and hide the real problem.
+//
+// Admin writes are handled separately through src/lib/admin-db.ts.
+
 import type { Project, BlogPost, NewsArticle } from "@/types";
-import { getServiceClient } from "@/lib/supabase";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
 // ------------------------------------------------------------
-// Database row -> application types
+// Database row -> Application type
 // ------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -14,10 +23,10 @@ function rowToProject(r: any): Project {
     id: r.id,
     slug: r.slug,
     title: r.title,
-    shortDescription: r.short_description,
-    description: r.description,
+    shortDescription: r.short_description ?? "",
+    description: r.description ?? "",
     purpose: r.purpose ?? "",
-    category: r.category,
+    category: r.category ?? "",
     technologies: r.technologies ?? [],
     features: r.features ?? [],
     websiteUrl: r.website_url ?? undefined,
@@ -36,7 +45,7 @@ function rowToBlog(r: any): BlogPost {
     slug: r.slug,
     title: r.title,
     excerpt: r.excerpt ?? "",
-    content: r.content,
+    content: r.content ?? "",
     coverImage: r.cover_image ?? "",
     author: r.author ?? "",
     category: r.category ?? "",
@@ -54,7 +63,7 @@ function rowToNews(r: any): NewsArticle {
     slug: r.slug,
     title: r.title,
     excerpt: r.excerpt ?? "",
-    content: r.content,
+    content: r.content ?? "",
     image: r.image ?? "",
     category: r.category ?? "",
     sourceName: r.source_name ?? undefined,
@@ -64,53 +73,73 @@ function rowToNews(r: any): NewsArticle {
 }
 
 // ------------------------------------------------------------
-// Get server-side Supabase client
-// ------------------------------------------------------------
-
-function getDb() {
-  const client = getServiceClient();
-
-  if (!client) {
-    throw new Error(
-      "Supabase is not configured. Make sure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set."
-    );
-  }
-
-  return client;
-}
-
-// ------------------------------------------------------------
 // PROJECTS
 // ------------------------------------------------------------
 
 export async function getProjects(): Promise<Project[]> {
-  const db = getDb();
+  if (!isSupabaseConfigured) {
+    console.warn(
+      "Supabase is not configured. getProjects() cannot load database data."
+    );
 
-  const { data, error } = await db
+    return [];
+  }
+
+  const { data, error } = await supabase
     .from("projects")
     .select("*")
     .eq("published", true)
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("getProjects Supabase error:", error);
+    console.error("Supabase getProjects error:", error);
     throw new Error(`Failed to load projects: ${error.message}`);
   }
 
   return (data ?? []).map(rowToProject);
 }
 
-export async function getFeaturedProjects(): Promise<Project[]> {
-  const projects = await getProjects();
-  return projects.filter((p) => p.featured);
+// ------------------------------------------------------------
+// LATEST PROJECTS
+// Used by the AI chatbot
+// ------------------------------------------------------------
+
+export async function getLatestProjects(
+  count = 3
+): Promise<Project[]> {
+  const all = await getProjects();
+
+  return [...all]
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() -
+        new Date(a.createdAt).getTime()
+    )
+    .slice(0, Math.max(1, count));
 }
+
+// ------------------------------------------------------------
+// FEATURED PROJECTS
+// ------------------------------------------------------------
+
+export async function getFeaturedProjects(): Promise<Project[]> {
+  const all = await getProjects();
+
+  return all.filter((project) => project.featured);
+}
+
+// ------------------------------------------------------------
+// PROJECT BY SLUG
+// ------------------------------------------------------------
 
 export async function getProjectBySlug(
   slug: string
 ): Promise<Project | undefined> {
-  const db = getDb();
+  if (!isSupabaseConfigured) {
+    return undefined;
+  }
 
-  const { data, error } = await db
+  const { data, error } = await supabase
     .from("projects")
     .select("*")
     .eq("slug", slug)
@@ -118,12 +147,16 @@ export async function getProjectBySlug(
     .maybeSingle();
 
   if (error) {
-    console.error("getProjectBySlug Supabase error:", error);
+    console.error("Supabase getProjectBySlug error:", error);
     throw new Error(`Failed to load project: ${error.message}`);
   }
 
   return data ? rowToProject(data) : undefined;
 }
+
+// ------------------------------------------------------------
+// PROJECTS BY CATEGORY
+// ------------------------------------------------------------
 
 export async function getProjectsByCategory(
   category: string
@@ -134,7 +167,38 @@ export async function getProjectsByCategory(
     return all;
   }
 
-  return all.filter((p) => p.category === category);
+  return all.filter((project) => project.category === category);
+}
+
+// ------------------------------------------------------------
+// SEARCH PROJECTS
+// Used by AI chatbot
+// ------------------------------------------------------------
+
+export async function searchProjects(
+  query: string
+): Promise<Project[]> {
+  const q = query.trim().toLowerCase();
+
+  if (!q) {
+    return getProjects();
+  }
+
+  const all = await getProjects();
+
+  return all.filter(
+    (project) =>
+      project.title.toLowerCase().includes(q) ||
+      project.shortDescription.toLowerCase().includes(q) ||
+      project.description.toLowerCase().includes(q) ||
+      project.category.toLowerCase().includes(q) ||
+      project.technologies.some((technology) =>
+        technology.toLowerCase().includes(q)
+      ) ||
+      project.features.some((feature) =>
+        feature.toLowerCase().includes(q)
+      )
+  );
 }
 
 // ------------------------------------------------------------
@@ -142,28 +206,40 @@ export async function getProjectsByCategory(
 // ------------------------------------------------------------
 
 export async function getBlogPosts(): Promise<BlogPost[]> {
-  const db = getDb();
+  if (!isSupabaseConfigured) {
+    console.warn(
+      "Supabase is not configured. getBlogPosts() cannot load database data."
+    );
 
-  const { data, error } = await db
+    return [];
+  }
+
+  const { data, error } = await supabase
     .from("blogs")
     .select("*")
     .eq("status", "published")
     .order("published_at", { ascending: false });
 
   if (error) {
-    console.error("getBlogPosts Supabase error:", error);
+    console.error("Supabase getBlogPosts error:", error);
     throw new Error(`Failed to load blog posts: ${error.message}`);
   }
 
   return (data ?? []).map(rowToBlog);
 }
 
+// ------------------------------------------------------------
+// BLOG BY SLUG
+// ------------------------------------------------------------
+
 export async function getBlogPostBySlug(
   slug: string
 ): Promise<BlogPost | undefined> {
-  const db = getDb();
+  if (!isSupabaseConfigured) {
+    return undefined;
+  }
 
-  const { data, error } = await db
+  const { data, error } = await supabase
     .from("blogs")
     .select("*")
     .eq("slug", slug)
@@ -171,7 +247,7 @@ export async function getBlogPostBySlug(
     .maybeSingle();
 
   if (error) {
-    console.error("getBlogPostBySlug Supabase error:", error);
+    console.error("Supabase getBlogPostBySlug error:", error);
     throw new Error(`Failed to load blog post: ${error.message}`);
   }
 
@@ -183,34 +259,46 @@ export async function getBlogPostBySlug(
 // ------------------------------------------------------------
 
 export async function getNewsArticles(): Promise<NewsArticle[]> {
-  const db = getDb();
+  if (!isSupabaseConfigured) {
+    console.warn(
+      "Supabase is not configured. getNewsArticles() cannot load database data."
+    );
 
-  const { data, error } = await db
+    return [];
+  }
+
+  const { data, error } = await supabase
     .from("news")
     .select("*")
     .order("published_at", { ascending: false });
 
   if (error) {
-    console.error("getNewsArticles Supabase error:", error);
+    console.error("Supabase getNewsArticles error:", error);
     throw new Error(`Failed to load news: ${error.message}`);
   }
 
   return (data ?? []).map(rowToNews);
 }
 
+// ------------------------------------------------------------
+// NEWS BY SLUG
+// ------------------------------------------------------------
+
 export async function getNewsArticleBySlug(
   slug: string
 ): Promise<NewsArticle | undefined> {
-  const db = getDb();
+  if (!isSupabaseConfigured) {
+    return undefined;
+  }
 
-  const { data, error } = await db
+  const { data, error } = await supabase
     .from("news")
     .select("*")
     .eq("slug", slug)
     .maybeSingle();
 
   if (error) {
-    console.error("getNewsArticleBySlug Supabase error:", error);
+    console.error("Supabase getNewsArticleBySlug error:", error);
     throw new Error(`Failed to load news article: ${error.message}`);
   }
 
@@ -218,50 +306,50 @@ export async function getNewsArticleBySlug(
 }
 
 // ------------------------------------------------------------
-// AI CHATBOT SEARCH
+// SEARCH BLOG + NEWS
+// Optional helper for other parts of the site
 // ------------------------------------------------------------
-
-export async function searchProjects(query: string): Promise<Project[]> {
-  const q = query.toLowerCase();
-  const all = await getProjects();
-
-  return all.filter(
-    (p) =>
-      p.title.toLowerCase().includes(q) ||
-      p.shortDescription.toLowerCase().includes(q) ||
-      p.description.toLowerCase().includes(q) ||
-      p.category.toLowerCase().includes(q) ||
-      p.technologies.some((t) => t.toLowerCase().includes(q))
-  );
-}
 
 export async function searchBlogPosts(
   query: string
 ): Promise<BlogPost[]> {
-  const q = query.toLowerCase();
-  const all = await getBlogPosts();
+  const q = query.trim().toLowerCase();
 
-  return all.filter(
-    (p) =>
-      p.title.toLowerCase().includes(q) ||
-      p.excerpt.toLowerCase().includes(q) ||
-      p.content.toLowerCase().includes(q) ||
-      p.category.toLowerCase().includes(q) ||
-      p.tags.some((t) => t.toLowerCase().includes(q))
+  const posts = await getBlogPosts();
+
+  if (!q) {
+    return posts;
+  }
+
+  return posts.filter(
+    (post) =>
+      post.title.toLowerCase().includes(q) ||
+      post.excerpt.toLowerCase().includes(q) ||
+      post.content.toLowerCase().includes(q) ||
+      post.category.toLowerCase().includes(q) ||
+      post.tags.some((tag) =>
+        tag.toLowerCase().includes(q)
+      )
   );
 }
 
 export async function searchNews(
   query: string
 ): Promise<NewsArticle[]> {
-  const q = query.toLowerCase();
-  const all = await getNewsArticles();
+  const q = query.trim().toLowerCase();
 
-  return all.filter(
-    (n) =>
-      n.title.toLowerCase().includes(q) ||
-      n.excerpt.toLowerCase().includes(q) ||
-      n.content.toLowerCase().includes(q) ||
-      n.category.toLowerCase().includes(q)
+  const articles = await getNewsArticles();
+
+  if (!q) {
+    return articles;
+  }
+
+  return articles.filter(
+    (article) =>
+      article.title.toLowerCase().includes(q) ||
+      article.excerpt.toLowerCase().includes(q) ||
+      article.content.toLowerCase().includes(q) ||
+      article.category.toLowerCase().includes(q)
   );
 }
+```
