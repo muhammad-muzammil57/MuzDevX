@@ -1,20 +1,17 @@
-**`src/lib/db.ts` — Complete replacement**
-
 ```ts
-// This file is the ONE place that reads public content.
+// This file is the ONE place that decides where public content comes from.
 //
-// Projects, blogs and news are loaded from Supabase when configured.
-// There is NO silent fallback to sample data when Supabase is configured.
-// This is important because otherwise a Supabase/RLS/query error can make
-// the website show old sample content and hide the real problem.
+// Projects, blogs and news are loaded from Supabase when Supabase is
+// configured. If Supabase is not configured, local sample data is used.
 //
 // Admin writes are handled separately through src/lib/admin-db.ts.
 
+import { projects, blogPosts, newsArticles } from "@/data/sample-data";
 import type { Project, BlogPost, NewsArticle } from "@/types";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
 // ------------------------------------------------------------
-// Database row -> Application type
+// DATABASE ROW -> PROJECT
 // ------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,6 +35,10 @@ function rowToProject(r: any): Project {
   };
 }
 
+// ------------------------------------------------------------
+// DATABASE ROW -> BLOG
+// ------------------------------------------------------------
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToBlog(r: any): BlogPost {
   return {
@@ -56,6 +57,10 @@ function rowToBlog(r: any): BlogPost {
   };
 }
 
+// ------------------------------------------------------------
+// DATABASE ROW -> NEWS
+// ------------------------------------------------------------
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToNews(r: any): NewsArticle {
   return {
@@ -72,17 +77,17 @@ function rowToNews(r: any): NewsArticle {
   };
 }
 
-// ------------------------------------------------------------
+// ============================================================
 // PROJECTS
-// ------------------------------------------------------------
+// ============================================================
 
 export async function getProjects(): Promise<Project[]> {
   if (!isSupabaseConfigured) {
     console.warn(
-      "Supabase is not configured. getProjects() cannot load database data."
+      "Supabase is not configured. Returning local sample projects."
     );
 
-    return [];
+    return projects;
   }
 
   const { data, error } = await supabase
@@ -101,7 +106,7 @@ export async function getProjects(): Promise<Project[]> {
 
 // ------------------------------------------------------------
 // LATEST PROJECTS
-// Used by the AI chatbot
+// Used by AI chatbot
 // ------------------------------------------------------------
 
 export async function getLatestProjects(
@@ -136,7 +141,7 @@ export async function getProjectBySlug(
   slug: string
 ): Promise<Project | undefined> {
   if (!isSupabaseConfigured) {
-    return undefined;
+    return projects.find((project) => project.slug === slug);
   }
 
   const { data, error } = await supabase
@@ -191,6 +196,7 @@ export async function searchProjects(
       project.title.toLowerCase().includes(q) ||
       project.shortDescription.toLowerCase().includes(q) ||
       project.description.toLowerCase().includes(q) ||
+      project.purpose.toLowerCase().includes(q) ||
       project.category.toLowerCase().includes(q) ||
       project.technologies.some((technology) =>
         technology.toLowerCase().includes(q)
@@ -201,17 +207,17 @@ export async function searchProjects(
   );
 }
 
-// ------------------------------------------------------------
+// ============================================================
 // BLOG
-// ------------------------------------------------------------
+// ============================================================
 
 export async function getBlogPosts(): Promise<BlogPost[]> {
   if (!isSupabaseConfigured) {
     console.warn(
-      "Supabase is not configured. getBlogPosts() cannot load database data."
+      "Supabase is not configured. Returning local sample blog posts."
     );
 
-    return [];
+    return blogPosts;
   }
 
   const { data, error } = await supabase
@@ -236,7 +242,7 @@ export async function getBlogPostBySlug(
   slug: string
 ): Promise<BlogPost | undefined> {
   if (!isSupabaseConfigured) {
-    return undefined;
+    return blogPosts.find((post) => post.slug === slug);
   }
 
   const { data, error } = await supabase
@@ -255,16 +261,43 @@ export async function getBlogPostBySlug(
 }
 
 // ------------------------------------------------------------
-// NEWS
+// SEARCH BLOG POSTS
 // ------------------------------------------------------------
+
+export async function searchBlogPosts(
+  query: string
+): Promise<BlogPost[]> {
+  const q = query.trim().toLowerCase();
+
+  const all = await getBlogPosts();
+
+  if (!q) {
+    return all;
+  }
+
+  return all.filter(
+    (post) =>
+      post.title.toLowerCase().includes(q) ||
+      post.excerpt.toLowerCase().includes(q) ||
+      post.content.toLowerCase().includes(q) ||
+      post.category.toLowerCase().includes(q) ||
+      post.tags.some((tag) =>
+        tag.toLowerCase().includes(q)
+      )
+  );
+}
+
+// ============================================================
+// NEWS
+// ============================================================
 
 export async function getNewsArticles(): Promise<NewsArticle[]> {
   if (!isSupabaseConfigured) {
     console.warn(
-      "Supabase is not configured. getNewsArticles() cannot load database data."
+      "Supabase is not configured. Returning local sample news."
     );
 
-    return [];
+    return newsArticles;
   }
 
   const { data, error } = await supabase
@@ -288,7 +321,7 @@ export async function getNewsArticleBySlug(
   slug: string
 ): Promise<NewsArticle | undefined> {
   if (!isSupabaseConfigured) {
-    return undefined;
+    return newsArticles.find((article) => article.slug === slug);
   }
 
   const { data, error } = await supabase
@@ -306,45 +339,21 @@ export async function getNewsArticleBySlug(
 }
 
 // ------------------------------------------------------------
-// SEARCH BLOG + NEWS
-// Optional helper for other parts of the site
+// SEARCH NEWS
 // ------------------------------------------------------------
-
-export async function searchBlogPosts(
-  query: string
-): Promise<BlogPost[]> {
-  const q = query.trim().toLowerCase();
-
-  const posts = await getBlogPosts();
-
-  if (!q) {
-    return posts;
-  }
-
-  return posts.filter(
-    (post) =>
-      post.title.toLowerCase().includes(q) ||
-      post.excerpt.toLowerCase().includes(q) ||
-      post.content.toLowerCase().includes(q) ||
-      post.category.toLowerCase().includes(q) ||
-      post.tags.some((tag) =>
-        tag.toLowerCase().includes(q)
-      )
-  );
-}
 
 export async function searchNews(
   query: string
 ): Promise<NewsArticle[]> {
   const q = query.trim().toLowerCase();
 
-  const articles = await getNewsArticles();
+  const all = await getNewsArticles();
 
   if (!q) {
-    return articles;
+    return all;
   }
 
-  return articles.filter(
+  return all.filter(
     (article) =>
       article.title.toLowerCase().includes(q) ||
       article.excerpt.toLowerCase().includes(q) ||
