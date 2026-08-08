@@ -1,10 +1,6 @@
-```ts
 // This file is the ONE place that decides where public content comes from.
-//
-// Projects, blogs and news are loaded from Supabase when Supabase is
-// configured. If Supabase is not configured, local sample data is used.
-//
-// Admin writes are handled separately through src/lib/admin-db.ts.
+// Supabase is used when configured.
+// Local sample data is used only when Supabase is not configured.
 
 import { projects, blogPosts, newsArticles } from "@/data/sample-data";
 import type { Project, BlogPost, NewsArticle } from "@/types";
@@ -84,7 +80,7 @@ function rowToNews(r: any): NewsArticle {
 export async function getProjects(): Promise<Project[]> {
   if (!isSupabaseConfigured) {
     console.warn(
-      "Supabase is not configured. Returning local sample projects."
+      "Supabase is not configured. Using local sample projects."
     );
 
     return projects;
@@ -98,16 +94,18 @@ export async function getProjects(): Promise<Project[]> {
 
   if (error) {
     console.error("Supabase getProjects error:", error);
-    throw new Error(`Failed to load projects: ${error.message}`);
+    throw new Error(
+      "Failed to load projects: " + error.message
+    );
   }
 
   return (data ?? []).map(rowToProject);
 }
 
-// ------------------------------------------------------------
+// ============================================================
 // LATEST PROJECTS
 // Used by AI chatbot
-// ------------------------------------------------------------
+// ============================================================
 
 export async function getLatestProjects(
   count = 3
@@ -123,9 +121,9 @@ export async function getLatestProjects(
     .slice(0, Math.max(1, count));
 }
 
-// ------------------------------------------------------------
+// ============================================================
 // FEATURED PROJECTS
-// ------------------------------------------------------------
+// ============================================================
 
 export async function getFeaturedProjects(): Promise<Project[]> {
   const all = await getProjects();
@@ -133,9 +131,9 @@ export async function getFeaturedProjects(): Promise<Project[]> {
   return all.filter((project) => project.featured);
 }
 
-// ------------------------------------------------------------
+// ============================================================
 // PROJECT BY SLUG
-// ------------------------------------------------------------
+// ============================================================
 
 export async function getProjectBySlug(
   slug: string
@@ -153,15 +151,17 @@ export async function getProjectBySlug(
 
   if (error) {
     console.error("Supabase getProjectBySlug error:", error);
-    throw new Error(`Failed to load project: ${error.message}`);
+    throw new Error(
+      "Failed to load project: " + error.message
+    );
   }
 
   return data ? rowToProject(data) : undefined;
 }
 
-// ------------------------------------------------------------
+// ============================================================
 // PROJECTS BY CATEGORY
-// ------------------------------------------------------------
+// ============================================================
 
 export async function getProjectsByCategory(
   category: string
@@ -172,24 +172,26 @@ export async function getProjectsByCategory(
     return all;
   }
 
-  return all.filter((project) => project.category === category);
+  return all.filter(
+    (project) => project.category === category
+  );
 }
 
-// ------------------------------------------------------------
+// ============================================================
 // SEARCH PROJECTS
 // Used by AI chatbot
-// ------------------------------------------------------------
+// ============================================================
 
 export async function searchProjects(
   query: string
 ): Promise<Project[]> {
   const q = query.trim().toLowerCase();
 
-  if (!q) {
-    return getProjects();
-  }
-
   const all = await getProjects();
+
+  if (!q) {
+    return all;
+  }
 
   return all.filter(
     (project) =>
@@ -214,7 +216,7 @@ export async function searchProjects(
 export async function getBlogPosts(): Promise<BlogPost[]> {
   if (!isSupabaseConfigured) {
     console.warn(
-      "Supabase is not configured. Returning local sample blog posts."
+      "Supabase is not configured. Using local sample blog posts."
     );
 
     return blogPosts;
@@ -228,15 +230,17 @@ export async function getBlogPosts(): Promise<BlogPost[]> {
 
   if (error) {
     console.error("Supabase getBlogPosts error:", error);
-    throw new Error(`Failed to load blog posts: ${error.message}`);
+    throw new Error(
+      "Failed to load blog posts: " + error.message
+    );
   }
 
   return (data ?? []).map(rowToBlog);
 }
 
-// ------------------------------------------------------------
+// ============================================================
 // BLOG BY SLUG
-// ------------------------------------------------------------
+// ============================================================
 
 export async function getBlogPostBySlug(
   slug: string
@@ -254,15 +258,17 @@ export async function getBlogPostBySlug(
 
   if (error) {
     console.error("Supabase getBlogPostBySlug error:", error);
-    throw new Error(`Failed to load blog post: ${error.message}`);
+    throw new Error(
+      "Failed to load blog post: " + error.message
+    );
   }
 
   return data ? rowToBlog(data) : undefined;
 }
 
-// ------------------------------------------------------------
+// ============================================================
 // SEARCH BLOG POSTS
-// ------------------------------------------------------------
+// ============================================================
 
 export async function searchBlogPosts(
   query: string
@@ -294,7 +300,7 @@ export async function searchBlogPosts(
 export async function getNewsArticles(): Promise<NewsArticle[]> {
   if (!isSupabaseConfigured) {
     console.warn(
-      "Supabase is not configured. Returning local sample news."
+      "Supabase is not configured. Using local sample news."
     );
 
     return newsArticles;
@@ -307,21 +313,25 @@ export async function getNewsArticles(): Promise<NewsArticle[]> {
 
   if (error) {
     console.error("Supabase getNewsArticles error:", error);
-    throw new Error(`Failed to load news: ${error.message}`);
+    throw new Error(
+      "Failed to load news: " + error.message
+    );
   }
 
   return (data ?? []).map(rowToNews);
 }
 
-// ------------------------------------------------------------
+// ============================================================
 // NEWS BY SLUG
-// ------------------------------------------------------------
+// ============================================================
 
 export async function getNewsArticleBySlug(
   slug: string
 ): Promise<NewsArticle | undefined> {
   if (!isSupabaseConfigured) {
-    return newsArticles.find((article) => article.slug === slug);
+    return newsArticles.find(
+      (article) => article.slug === slug
+    );
   }
 
   const { data, error } = await supabase
@@ -331,16 +341,22 @@ export async function getNewsArticleBySlug(
     .maybeSingle();
 
   if (error) {
-    console.error("Supabase getNewsArticleBySlug error:", error);
-    throw new Error(`Failed to load news article: ${error.message}`);
+    console.error(
+      "Supabase getNewsArticleBySlug error:",
+      error
+    );
+
+    throw new Error(
+      "Failed to load news article: " + error.message
+    );
   }
 
   return data ? rowToNews(data) : undefined;
 }
 
-// ------------------------------------------------------------
+// ============================================================
 // SEARCH NEWS
-// ------------------------------------------------------------
+// ============================================================
 
 export async function searchNews(
   query: string
@@ -361,4 +377,3 @@ export async function searchNews(
       article.category.toLowerCase().includes(q)
   );
 }
-```
