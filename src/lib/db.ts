@@ -1,16 +1,12 @@
-// This file is the ONE place that decides where content comes from.
-// When Supabase is configured (see .env.local / .env.example) every function
-// below queries the real `projects` / `blogs` / `news` tables (respecting the
-// RLS policies in supabase/schema.sql, so only published content is public).
-// Until then, it falls back to the local sample data so the site still
-// renders out of the box.
-//
-// Admin writes go through src/lib/admin-db.ts (service role, used only by
-// /api/admin/* routes) — this file stays read-only and public-safe.
+import "server-only";
 
 import { projects, blogPosts, newsArticles } from "@/data/sample-data";
 import type { Project, BlogPost, NewsArticle } from "@/types";
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { getServiceClient } from "@/lib/supabase";
+
+// ------------------------------------------------------------
+// Database row -> application types
+// ------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToProject(r: any): Project {
@@ -63,104 +59,209 @@ function rowToNews(r: any): NewsArticle {
     category: r.category ?? "",
     sourceName: r.source_name ?? undefined,
     sourceUrl: r.source_url ?? undefined,
-    publishedAt: r.published_at,
+    publishedAt: r.published_at ?? r.created_at,
   };
 }
 
-export async function getProjects(): Promise<Project[]> {
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
-      .from("projects")
-      .select("*")
-      .eq("published", true)
-      .order("created_at", { ascending: false });
-    if (!error && data) return data.map(rowToProject);
+// ------------------------------------------------------------
+// Get server-side Supabase client
+// ------------------------------------------------------------
+
+function getDb() {
+  const client = getServiceClient();
+
+  if (!client) {
+    throw new Error(
+      "Supabase is not configured. Make sure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set."
+    );
   }
-  return projects;
+
+  return client;
+}
+
+// ------------------------------------------------------------
+// PROJECTS
+// ------------------------------------------------------------
+
+export async function getProjects(): Promise<Project[]> {
+  const db = getDb();
+
+  const { data, error } = await db
+    .from("projects")
+    .select("*")
+    .eq("published", true)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("getProjects Supabase error:", error);
+    throw new Error(`Failed to load projects: ${error.message}`);
+  }
+
+  return (data ?? []).map(rowToProject);
 }
 
 export async function getFeaturedProjects(): Promise<Project[]> {
-  return (await getProjects()).filter((p) => p.featured);
+  const projects = await getProjects();
+  return projects.filter((p) => p.featured);
 }
 
-export async function getProjectBySlug(slug: string): Promise<Project | undefined> {
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
-      .from("projects")
-      .select("*")
-      .eq("slug", slug)
-      .eq("published", true)
-      .maybeSingle();
-    if (!error) return data ? rowToProject(data) : undefined;
+export async function getProjectBySlug(
+  slug: string
+): Promise<Project | undefined> {
+  const db = getDb();
+
+  const { data, error } = await db
+    .from("projects")
+    .select("*")
+    .eq("slug", slug)
+    .eq("published", true)
+    .maybeSingle();
+
+  if (error) {
+    console.error("getProjectBySlug Supabase error:", error);
+    throw new Error(`Failed to load project: ${error.message}`);
   }
-  return projects.find((p) => p.slug === slug);
+
+  return data ? rowToProject(data) : undefined;
 }
 
-export async function getProjectsByCategory(category: string): Promise<Project[]> {
-  if (category === "All") return getProjects();
-  return (await getProjects()).filter((p) => p.category === category);
+export async function getProjectsByCategory(
+  category: string
+): Promise<Project[]> {
+  const all = await getProjects();
+
+  if (category === "All") {
+    return all;
+  }
+
+  return all.filter((p) => p.category === category);
 }
+
+// ------------------------------------------------------------
+// BLOG
+// ------------------------------------------------------------
 
 export async function getBlogPosts(): Promise<BlogPost[]> {
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
-      .from("blogs")
-      .select("*")
-      .eq("status", "published")
-      .order("published_at", { ascending: false });
-    if (!error && data) return data.map(rowToBlog);
+  const db = getDb();
+
+  const { data, error } = await db
+    .from("blogs")
+    .select("*")
+    .eq("status", "published")
+    .order("published_at", { ascending: false });
+
+  if (error) {
+    console.error("getBlogPosts Supabase error:", error);
+    throw new Error(`Failed to load blog posts: ${error.message}`);
   }
-  return blogPosts;
+
+  return (data ?? []).map(rowToBlog);
 }
 
-export async function getBlogPostBySlug(slug: string): Promise<BlogPost | undefined> {
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
-      .from("blogs")
-      .select("*")
-      .eq("slug", slug)
-      .eq("status", "published")
-      .maybeSingle();
-    if (!error) return data ? rowToBlog(data) : undefined;
+export async function getBlogPostBySlug(
+  slug: string
+): Promise<BlogPost | undefined> {
+  const db = getDb();
+
+  const { data, error } = await db
+    .from("blogs")
+    .select("*")
+    .eq("slug", slug)
+    .eq("status", "published")
+    .maybeSingle();
+
+  if (error) {
+    console.error("getBlogPostBySlug Supabase error:", error);
+    throw new Error(`Failed to load blog post: ${error.message}`);
   }
-  return blogPosts.find((p) => p.slug === slug);
+
+  return data ? rowToBlog(data) : undefined;
 }
+
+// ------------------------------------------------------------
+// NEWS
+// ------------------------------------------------------------
 
 export async function getNewsArticles(): Promise<NewsArticle[]> {
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
-      .from("news")
-      .select("*")
-      .order("published_at", { ascending: false });
-    if (!error && data) return data.map(rowToNews);
+  const db = getDb();
+
+  const { data, error } = await db
+    .from("news")
+    .select("*")
+    .order("published_at", { ascending: false });
+
+  if (error) {
+    console.error("getNewsArticles Supabase error:", error);
+    throw new Error(`Failed to load news: ${error.message}`);
   }
-  return newsArticles;
+
+  return (data ?? []).map(rowToNews);
 }
 
-export async function getNewsArticleBySlug(slug: string): Promise<NewsArticle | undefined> {
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase.from("news").select("*").eq("slug", slug).maybeSingle();
-    if (!error) return data ? rowToNews(data) : undefined;
+export async function getNewsArticleBySlug(
+  slug: string
+): Promise<NewsArticle | undefined> {
+  const db = getDb();
+
+  const { data, error } = await db
+    .from("news")
+    .select("*")
+    .eq("slug", slug)
+    .maybeSingle();
+
+  if (error) {
+    console.error("getNewsArticleBySlug Supabase error:", error);
+    throw new Error(`Failed to load news article: ${error.message}`);
   }
-  return newsArticles.find((n) => n.slug === slug);
+
+  return data ? rowToNews(data) : undefined;
 }
 
-// Used by the AI chatbot's tool-calling layer (see src/app/api/chat/route.ts)
+// ------------------------------------------------------------
+// AI CHATBOT SEARCH
+// ------------------------------------------------------------
+
 export async function searchProjects(query: string): Promise<Project[]> {
   const q = query.toLowerCase();
   const all = await getProjects();
+
   return all.filter(
     (p) =>
       p.title.toLowerCase().includes(q) ||
       p.shortDescription.toLowerCase().includes(q) ||
+      p.description.toLowerCase().includes(q) ||
       p.category.toLowerCase().includes(q) ||
       p.technologies.some((t) => t.toLowerCase().includes(q))
   );
 }
 
-export async function getLatestProjects(count = 3): Promise<Project[]> {
-  const all = await getProjects();
-  return [...all]
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, count);
+export async function searchBlogPosts(
+  query: string
+): Promise<BlogPost[]> {
+  const q = query.toLowerCase();
+  const all = await getBlogPosts();
+
+  return all.filter(
+    (p) =>
+      p.title.toLowerCase().includes(q) ||
+      p.excerpt.toLowerCase().includes(q) ||
+      p.content.toLowerCase().includes(q) ||
+      p.category.toLowerCase().includes(q) ||
+      p.tags.some((t) => t.toLowerCase().includes(q))
+  );
+}
+
+export async function searchNews(
+  query: string
+): Promise<NewsArticle[]> {
+  const q = query.toLowerCase();
+  const all = await getNewsArticles();
+
+  return all.filter(
+    (n) =>
+      n.title.toLowerCase().includes(q) ||
+      n.excerpt.toLowerCase().includes(q) ||
+      n.content.toLowerCase().includes(q) ||
+      n.category.toLowerCase().includes(q)
+  );
 }
