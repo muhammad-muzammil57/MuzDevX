@@ -7,6 +7,7 @@ import ProjectCard from "@/components/ProjectCard";
 import BlogCard from "@/components/BlogCard";
 import NewsCard from "@/components/NewsCard";
 import Hero from "@/components/Hero";
+export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const [featured, posts, news] = await Promise.all([
