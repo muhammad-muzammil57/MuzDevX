@@ -133,7 +133,7 @@ async function runTool(name: string, args: Record<string, unknown>) {
   }
 }
 
-const MODEL = "llama-3.3-70b-versatile"; // REPLACE_ME if Groq renames/retires this model
+const MODEL = "openai/gpt-oss-120b"; // REPLACE_ME if Groq renames/retires this model — see https://console.groq.com/docs/deprecations
 const MAX_TOOL_ROUNDS = 4;
 
 // Some Llama models occasionally print a fake tool-call as plain text
