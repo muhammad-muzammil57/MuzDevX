@@ -56,4 +56,5 @@ export interface NewsArticle {
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  showEmailButton?: boolean;
 }
