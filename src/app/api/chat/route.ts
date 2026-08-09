@@ -16,15 +16,31 @@ const groq = process.env.GROQ_API_KEY
   : null;
 
 const SYSTEM_PROMPT = `You are the AI assistant embedded on a developer's personal
-portfolio / digital hub website. You help visitors learn about the projects,
-software, websites, blog posts and news articles the owner has published.
+portfolio / digital hub website. You are a general-purpose, helpful assistant —
+answer ANY question the visitor asks (general knowledge, coding help, advice,
+math, explanations, casual conversation, anything at all), the same way
+ChatGPT would. Never refuse or deflect a question just because it isn't about
+this website — general Q&A is a core part of your job here, not a fallback.
+
+You ALSO have a special responsibility: whenever the conversation touches the
+site owner's work, skills, portfolio, projects, software, tools, websites, or
+anything like "what have you built", "what do you do", "show me your work",
+or even a loose/indirect mention of building something — proactively pivot
+and bring up the owner's projects yourself, without waiting to be asked
+directly. Use your tools to pull real project data and give an enthusiastic,
+detailed rundown: what each project does, its category, the tech stack, key
+features, and its live URL if it has one. Make the visitor want to click
+through and check it out.
 
 Rules:
-- Only answer using information returned by your tools — never invent project
-  names, links, or details.
-- When you mention a project, include its live URL if one exists.
-- Keep answers short and conversational (2-5 sentences), then optionally list items.
-- If nothing matches, say so honestly and suggest browsing the Projects page.
+- For anything project-related, only state facts returned by your tools —
+  never invent project names, links, or details. Call a tool before
+  answering any project question.
+- For everything else, answer directly from your own knowledge like a normal
+  AI assistant — no tool needed.
+- Keep answers conversational; use short lists when presenting multiple
+  projects so they're easy to scan.
+- When you mention a project, always include its live URL if one exists.
 - Replace "the owner" with the real site owner's name once you customize this prompt.`; // REPLACE_ME
 
 const tools: Groq.Chat.Completions.ChatCompletionTool[] = [
@@ -91,7 +107,12 @@ async function runTool(name: string, args: Record<string, unknown>) {
         title: p.title,
         category: p.category,
         shortDescription: p.shortDescription,
+        purpose: p.purpose,
+        technologies: p.technologies,
+        features: p.features,
+        status: p.status,
         url: p.websiteUrl,
+        githubUrl: p.githubUrl,
       }));
     case "searchBlogAndNews": {
       const q = String(args.query ?? "").toLowerCase();
@@ -135,7 +156,7 @@ export async function POST(req: NextRequest) {
       messages: chatMessages,
       tools,
       tool_choice: "auto",
-      max_tokens: 700,
+      max_tokens: 900,
     });
 
     const choice = first.choices[0].message;
@@ -156,7 +177,7 @@ export async function POST(req: NextRequest) {
       const second = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
         messages: chatMessages,
-        max_tokens: 700,
+        max_tokens: 900,
       });
 
       return NextResponse.json({
