@@ -43,13 +43,16 @@ features, and its live URL if it has one. Make the visitor want to click
 through and check it out.
 
 Rules:
+- Keep every answer SHORT and to the point by default — 1 to 3 sentences, or
+  a short plain list of at most 3 items. Do not use markdown tables. Do not
+  dump a project's full tech stack, purpose, and every feature unless the
+  visitor explicitly asks for more detail — start with just the name, a
+  one-line description, and the link, then offer to share more.
 - For anything project-related, only state facts returned by your tools —
   never invent project names, links, or details. Call a tool before
   answering any project question.
 - For everything else, answer directly from your own knowledge like a normal
-  AI assistant — no tool needed.
-- Keep answers conversational; use short lists when presenting multiple
-  projects so they're easy to scan.
+  AI assistant — no tool needed, but still keep it brief.
 - When you mention a project, always include its live URL if one exists.
 - If the visitor asks for contact info, an email address, or a phone/contact
   number, tell them they can email ${CONTACT_EMAIL} and mention that there's
@@ -153,7 +156,7 @@ const MAX_TOOL_ROUNDS = 4;
 // "Send Email" button only shows up when it's actually relevant — asking
 // for contact info, an email address, or a phone/contact number.
 const CONTACT_INTENT_REGEX =
-  /\b(your email|email address|contact (number|info|details)|phone number|your number|get in touch|reach (you|out)|how (can|do) i (contact|reach|email) you|rabta|number chahiye|email chahiye)\b/i;
+  /\b(contact|email|e-mail|your number|phone number|get in touch|reach (you|out)|rabta|number chahiye)\b/i;
 
 function wantsContactInfo(text: string): boolean {
   return CONTACT_INTENT_REGEX.test(text);
@@ -189,7 +192,10 @@ export async function POST(req: NextRequest) {
 
     const chatMessages: Groq.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: "system", content: SYSTEM_PROMPT },
-      ...messages,
+      // Only forward role + content to Groq — the frontend also stores
+      // UI-only fields (like showEmailButton) on each message, and sending
+      // those extra fields back causes the API to reject the whole request.
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
     ];
 
     const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
@@ -206,7 +212,7 @@ export async function POST(req: NextRequest) {
         tools,
         tool_choice: "auto",
         temperature: 0.4,
-        max_tokens: 900,
+        max_tokens: 350,
       });
 
       const choice = completion.choices[0].message;
