@@ -50,6 +50,41 @@ function SendEmailButton() {
   );
 }
 
+// Renders assistant text safely: strips stray <tags>, turns **bold** into
+// real bold, and turns URLs into clickable links — instead of showing
+// raw markdown/asterisks/angle-brackets as plain text.
+const URL_REGEX = /(https?:\/\/[^\s)]+)/g;
+const URL_TEST = /^https?:\/\/[^\s)]+$/;
+
+function renderMessageContent(content: string) {
+  const cleaned = content.replace(/<[^>]+>/g, ""); // strip any <...> leftovers
+
+  return cleaned.split("\n").map((line, li) => (
+    <p key={li} className={line.trim() ? (li > 0 ? "mt-1.5" : "") : "h-1.5"}>
+      {line.split(/(\*\*[^*]+\*\*)/g).map((part, pi) => {
+        if (/^\*\*[^*]+\*\*$/.test(part)) {
+          return <strong key={pi}>{part.slice(2, -2)}</strong>;
+        }
+        return part.split(URL_REGEX).map((sp, si) =>
+          URL_TEST.test(sp) ? (
+            
+              key={`${pi}-${si}`}
+              href={sp}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="break-all text-accent underline underline-offset-2 hover:opacity-80"
+            >
+              {sp}
+            </a>
+          ) : (
+            <span key={`${pi}-${si}`}>{sp}</span>
+          )
+        );
+      })}
+    </p>
+  ));
+}
+
 export default function Chatbot() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
