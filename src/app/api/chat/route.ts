@@ -15,12 +15,22 @@ const groq = process.env.GROQ_API_KEY
   ? new Groq({ apiKey: process.env.GROQ_API_KEY })
   : null;
 
+// REPLACE_ME if the contact address changes — keep this in sync with the
+// address used by the "Send Email" button in src/components/Chatbot.tsx.
+const CONTACT_EMAIL = "support@muzdevx.dedyn.io";
+
 const SYSTEM_PROMPT = `You are the AI assistant embedded on a developer's personal
 portfolio / digital hub website. You are a general-purpose, helpful assistant —
 answer ANY question the visitor asks (general knowledge, coding help, advice,
 math, explanations, casual conversation, anything at all), the same way
 ChatGPT would. Never refuse or deflect a question just because it isn't about
 this website — general Q&A is a core part of your job here, not a fallback.
+
+Identity: if asked who made you, who built you, what company created you, what
+AI model you are, or anything similar, always answer that you were built by
+Muzammilcoder for this site — never mention OpenAI, Meta, Groq, or any
+underlying AI provider/model name. You don't need to explain the technical
+stack behind you; just say Muzammilcoder built/trained you for this website.
 
 You ALSO have a special responsibility: whenever the conversation touches the
 site owner's work, skills, portfolio, projects, software, tools, websites, or
@@ -41,11 +51,14 @@ Rules:
 - Keep answers conversational; use short lists when presenting multiple
   projects so they're easy to scan.
 - When you mention a project, always include its live URL if one exists.
+- If the visitor asks for contact info, an email address, or a phone/contact
+  number, tell them they can email ${CONTACT_EMAIL} and mention that there's
+  a "Send Email" button right below this message they can tap to do that
+  directly — don't make up a phone number, only this email exists.
 - NEVER write out tool/function-call syntax as plain text (e.g. things like
   <function=...> or similar). If you need data, call the tool for real
   through the tool-calling mechanism — don't describe or fake a call in your
-  written reply.
-- Replace "the owner" with the real site owner's name once you customize this prompt.`; // REPLACE_ME
+  written reply.`; // REPLACE_ME "Muzammilcoder" with the real site owner's name if it changes
 
 const tools: Groq.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -136,6 +149,16 @@ async function runTool(name: string, args: Record<string, unknown>) {
 const MODEL = "openai/gpt-oss-120b"; // REPLACE_ME if Groq renames/retires this model — see https://console.groq.com/docs/deprecations
 const MAX_TOOL_ROUNDS = 4;
 
+// Simple, deterministic (non-AI) check on the visitor's own message so the
+// "Send Email" button only shows up when it's actually relevant — asking
+// for contact info, an email address, or a phone/contact number.
+const CONTACT_INTENT_REGEX =
+  /\b(your email|email address|contact (number|info|details)|phone number|your number|get in touch|reach (you|out)|how (can|do) i (contact|reach|email) you|rabta|number chahiye|email chahiye)\b/i;
+
+function wantsContactInfo(text: string): boolean {
+  return CONTACT_INTENT_REGEX.test(text);
+}
+
 // Some Llama models occasionally print a fake tool-call as plain text
 // (e.g. "<function=searchProjects{...}>") instead of using the real
 // tool-calling mechanism, usually when they weren't given the tools list
@@ -168,6 +191,9 @@ export async function POST(req: NextRequest) {
       { role: "system", content: SYSTEM_PROMPT },
       ...messages,
     ];
+
+    const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
+    const showEmailButton = lastUserMessage ? wantsContactInfo(lastUserMessage.content) : false;
 
     let finalContent = "";
 
@@ -225,7 +251,7 @@ export async function POST(req: NextRequest) {
     }
 
     const reply = stripLeakedToolSyntax(finalContent) || "Sorry, I couldn't find an answer.";
-    return NextResponse.json({ reply });
+    return NextResponse.json({ reply, showEmailButton });
   } catch (err) {
     console.error("Chat API error:", err);
     return NextResponse.json(
