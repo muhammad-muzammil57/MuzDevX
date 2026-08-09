@@ -145,8 +145,8 @@ export const newsArticles: NewsArticle[] = [
 ];
 
 export const siteStats = [
-  { label: "Projects", value: "20+" },
-  { label: "Websites", value: "10+" },
+  { label: "Projects", value: "100+" },
+  { label: "Websites", value: "80+" },
   { label: "Software", value: "5+" },
   { label: "Ideas", value: "∞" },
 ];
