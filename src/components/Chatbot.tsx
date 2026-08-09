@@ -67,8 +67,8 @@ function renderMessageContent(content: string) {
         }
         return part.split(URL_REGEX).map((sp, si) =>
           URL_TEST.test(sp) ? (
-            
-              key={`${pi}-${si}`}
+            <a
+              key={pi + "-" + si}
               href={sp}
               target="_blank"
               rel="noopener noreferrer"
@@ -77,7 +77,7 @@ function renderMessageContent(content: string) {
               {sp}
             </a>
           ) : (
-            <span key={`${pi}-${si}`}>{sp}</span>
+            <span key={pi + "-" + si}>{sp}</span>
           )
         );
       })}
@@ -173,7 +173,7 @@ export default function Chatbot() {
                         : "rounded-bl-sm bg-surface-2 text-text"
                     }`}
                   >
-                    {renderMessageContent(m.content)}
+                    {m.content}
                   </div>
                   {m.role === "assistant" && m.showEmailButton && <SendEmailButton />}
                 </div>
