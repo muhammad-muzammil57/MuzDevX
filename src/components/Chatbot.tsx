@@ -173,7 +173,7 @@ export default function Chatbot() {
                         : "rounded-bl-sm bg-surface-2 text-text"
                     }`}
                   >
-                    {m.content}
+                    {renderMessageContent(m.content)}
                   </div>
                   {m.role === "assistant" && m.showEmailButton && <SendEmailButton />}
                 </div>
