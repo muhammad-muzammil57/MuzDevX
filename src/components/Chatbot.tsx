@@ -2,14 +2,53 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bot, Send, X, Sparkles } from "lucide-react";
+import { Bot, Send, X, Sparkles, Mail } from "lucide-react";
 import type { ChatMessage } from "@/types";
+
+// REPLACE_ME if this changes — keep in sync with CONTACT_EMAIL in
+// src/app/api/chat/route.ts.
+const CONTACT_EMAIL = "support@muzdevx.dedyn.io";
 
 const STARTER_PROMPTS = [
   "What's your latest project?",
   "Do you have any AI tools?",
   "Tell me about your blog",
 ];
+
+function SendEmailButton() {
+  function handleClick() {
+    const subject = encodeURIComponent("Message from your portfolio site");
+    const gmailAppUrl = `googlegmail:///co?to=${CONTACT_EMAIL}&subject=${subject}`;
+    const gmailWebUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${CONTACT_EMAIL}&su=${subject}`;
+
+    // Try opening the Gmail app first (mobile deep link). If the app isn't
+    // installed, nothing happens and the tab stays visible/focused — so if
+    // we're still here after a short wait, fall back to Gmail on the web.
+    let appOpened = false;
+    const onHide = () => {
+      appOpened = true;
+    };
+    document.addEventListener("visibilitychange", onHide);
+    window.location.href = gmailAppUrl;
+
+    setTimeout(() => {
+      document.removeEventListener("visibilitychange", onHide);
+      if (!appOpened) {
+        window.open(gmailWebUrl, "_blank", "noopener,noreferrer");
+      }
+    }, 1000);
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      className="mt-1.5 inline-flex items-center gap-1.5 self-start rounded-full border border-accent/40 bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent"
+    >
+      <Mail size={13} />
+      Send Email
+    </button>
+  );
+}
 
 export default function Chatbot() {
   const [open, setOpen] = useState(false);
@@ -42,7 +81,10 @@ export default function Chatbot() {
         body: JSON.stringify({ messages: next }),
       });
       const data = await res.json();
-      setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: data.reply, showEmailButton: Boolean(data.showEmailButton) },
+      ]);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -87,7 +129,7 @@ export default function Chatbot() {
               {messages.map((m, i) => (
                 <div
                   key={i}
-                  className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
+                  className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}
                 >
                   <div
                     className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
@@ -98,6 +140,7 @@ export default function Chatbot() {
                   >
                     {m.content}
                   </div>
+                  {m.role === "assistant" && m.showEmailButton && <SendEmailButton />}
                 </div>
               ))}
               {loading && (
