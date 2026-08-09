@@ -16,15 +16,35 @@ const groq = process.env.GROQ_API_KEY
   : null;
 
 const SYSTEM_PROMPT = `You are the AI assistant embedded on a developer's personal
-portfolio / digital hub website. You help visitors learn about the projects,
-software, websites, blog posts and news articles the owner has published.
+portfolio / digital hub website. You are a general-purpose, helpful assistant —
+answer ANY question the visitor asks (general knowledge, coding help, advice,
+math, explanations, casual conversation, anything at all), the same way
+ChatGPT would. Never refuse or deflect a question just because it isn't about
+this website — general Q&A is a core part of your job here, not a fallback.
+
+You ALSO have a special responsibility: whenever the conversation touches the
+site owner's work, skills, portfolio, projects, software, tools, websites, or
+anything like "what have you built", "what do you do", "show me your work",
+or even a loose/indirect mention of building something — proactively pivot
+and bring up the owner's projects yourself, without waiting to be asked
+directly. Use your tools to pull real project data and give an enthusiastic,
+detailed rundown: what each project does, its category, the tech stack, key
+features, and its live URL if it has one. Make the visitor want to click
+through and check it out.
 
 Rules:
-- Only answer using information returned by your tools — never invent project
-  names, links, or details.
-- When you mention a project, include its live URL if one exists.
-- Keep answers short and conversational (2-5 sentences), then optionally list items.
-- If nothing matches, say so honestly and suggest browsing the Projects page.
+- For anything project-related, only state facts returned by your tools —
+  never invent project names, links, or details. Call a tool before
+  answering any project question.
+- For everything else, answer directly from your own knowledge like a normal
+  AI assistant — no tool needed.
+- Keep answers conversational; use short lists when presenting multiple
+  projects so they're easy to scan.
+- When you mention a project, always include its live URL if one exists.
+- NEVER write out tool/function-call syntax as plain text (e.g. things like
+  <function=...> or similar). If you need data, call the tool for real
+  through the tool-calling mechanism — don't describe or fake a call in your
+  written reply.
 - Replace "the owner" with the real site owner's name once you customize this prompt.`; // REPLACE_ME
 
 const tools: Groq.Chat.Completions.ChatCompletionTool[] = [
@@ -91,7 +111,12 @@ async function runTool(name: string, args: Record<string, unknown>) {
         title: p.title,
         category: p.category,
         shortDescription: p.shortDescription,
+        purpose: p.purpose,
+        technologies: p.technologies,
+        features: p.features,
+        status: p.status,
         url: p.websiteUrl,
+        githubUrl: p.githubUrl,
       }));
     case "searchBlogAndNews": {
       const q = String(args.query ?? "").toLowerCase();
@@ -106,6 +131,21 @@ async function runTool(name: string, args: Record<string, unknown>) {
     default:
       return { error: "Unknown tool" };
   }
+}
+
+const MODEL = "llama-3.3-70b-versatile"; // REPLACE_ME if Groq renames/retires this model
+const MAX_TOOL_ROUNDS = 4;
+
+// Some Llama models occasionally print a fake tool-call as plain text
+// (e.g. "<function=searchProjects{...}>") instead of using the real
+// tool-calling mechanism, usually when they weren't given the tools list
+// on a later round. This strips any such leftovers as a last-resort safety
+// net so it never reaches the visitor.
+function stripLeakedToolSyntax(text: string): string {
+  return text
+    .replace(/<function=[^>]*>[\s\S]*?<\/function>/gi, "")
+    .replace(/<function=[^>]*\/?>/gi, "")
+    .trim();
 }
 
 export async function POST(req: NextRequest) {
@@ -129,44 +169,63 @@ export async function POST(req: NextRequest) {
       ...messages,
     ];
 
-    // First pass: let the model decide whether to call a tool
-    const first = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile", // REPLACE_ME if Groq renames/retires this model
-      messages: chatMessages,
-      tools,
-      tool_choice: "auto",
-      max_tokens: 700,
-    });
+    let finalContent = "";
 
-    const choice = first.choices[0].message;
+    // Let the model call tools as many times as it needs (up to a cap),
+    // always keeping the tools list available so it never has to fake one.
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      const completion = await groq.chat.completions.create({
+        model: MODEL,
+        messages: chatMessages,
+        tools,
+        tool_choice: "auto",
+        temperature: 0.4,
+        max_tokens: 900,
+      });
 
-    if (choice.tool_calls && choice.tool_calls.length > 0) {
-      chatMessages.push(choice);
+      const choice = completion.choices[0].message;
 
-      for (const call of choice.tool_calls) {
-        const args = JSON.parse(call.function.arguments || "{}");
-        const result = await runTool(call.function.name, args);
-        chatMessages.push({
-          role: "tool",
-          tool_call_id: call.id,
-          content: JSON.stringify(result),
-        });
+      if (choice.tool_calls && choice.tool_calls.length > 0) {
+        chatMessages.push(choice);
+
+        for (const call of choice.tool_calls) {
+          let args: Record<string, unknown> = {};
+          try {
+            args = call.function.arguments ? JSON.parse(call.function.arguments) : {};
+          } catch {
+            // Malformed arguments from the model — fall back to no args
+            // instead of crashing the whole request.
+            args = {};
+          }
+
+          let result: unknown;
+          try {
+            result = await runTool(call.function.name, args);
+          } catch (toolErr) {
+            console.error(`Tool "${call.function.name}" failed:`, toolErr);
+            result = { error: "This tool failed to run." };
+          }
+
+          chatMessages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: JSON.stringify(result),
+          });
+        }
+
+        continue; // give the model another round with the fresh tool results
       }
 
-      const second = await groq.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
-        messages: chatMessages,
-        max_tokens: 700,
-      });
-
-      return NextResponse.json({
-        reply: second.choices[0].message.content ?? "Sorry, I couldn't find an answer.",
-      });
+      finalContent = choice.content ?? "";
+      break;
     }
 
-    return NextResponse.json({
-      reply: choice.content ?? "Sorry, I couldn't find an answer.",
-    });
+    if (!finalContent) {
+      finalContent = "Sorry, I couldn't put an answer together just now — please try again.";
+    }
+
+    const reply = stripLeakedToolSyntax(finalContent) || "Sorry, I couldn't find an answer.";
+    return NextResponse.json({ reply });
   } catch (err) {
     console.error("Chat API error:", err);
     return NextResponse.json(
